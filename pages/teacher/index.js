@@ -1,311 +1,370 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { auth, db } from '../../firebase';
-import { collection, getDocs, addDoc, deleteDoc, doc, updateDoc } from 'firebase/firestore';
-import { deleteUser } from 'firebase/auth';
+import { collection, query, where, getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
 import toast, { Toaster } from 'react-hot-toast';
+import MobileNav from '../../components/MobileNav';
+import ChatGroup from '../../components/ChatGroup';
+import { nanoid } from 'nanoid';
 
-export default function AdminDashboard() {
+export default function TeacherDashboard() {
   const router = useRouter();
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [teacher, setTeacher] = useState(null);
   const [students, setStudents] = useState([]);
-  const [teachers, setTeachers] = useState([]);
-  const [showCreateModal, setShowCreateModal] = useState(false);
-  const [accountType, setAccountType] = useState('student');
-  const [formData, setFormData] = useState({
-    name: '',
+  const [quizzes, setQuizzes] = useState([]);
+  const [showQuizModal, setShowQuizModal] = useState(false);
+  const [selectedChat, setSelectedChat] = useState(null);
+  const [quizData, setQuizData] = useState({
+    title: '',
     grade: '6',
-    class: 'A',
-    password: '',
+    questions: [{ question: '', options: ['', '', '', ''], correctAnswer: 0, marks: 1 }]
   });
 
   useEffect(() => {
     checkAuth();
-    fetchData();
   }, []);
 
-  const checkAuth = () => {
+  const checkAuth = async () => {
     const user = auth.currentUser;
     if (!user) {
       router.push('/login');
+      return;
     }
-  };
 
-  const fetchData = async () => {
     try {
-      const studentsSnap = await getDocs(collection(db, 'students'));
-      setStudents(studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      const teachersRef = collection(db, 'teachers');
+      const q = query(teachersRef, where('email', '==', user.email));
+      const snapshot = await getDocs(q);
+      
+      if (!snapshot.empty) {
+        const teacherData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
+        setTeacher(teacherData);
 
-      const teachersSnap = await getDocs(collection(db, 'teachers'));
-      setTeachers(teachersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+        // Fetch students
+        const studentsSnap = await getDocs(collection(db, 'students'));
+        setStudents(studentsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })).filter(s => s.studentId));
+
+        // Fetch teacher's quizzes
+        const quizzesRef = collection(db, 'quizzes');
+        const quizzesQuery = query(quizzesRef, where('teacherId', '==', teacherData.teacherId));
+        const quizzesSnap = await getDocs(quizzesQuery);
+        setQuizzes(quizzesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      }
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('Error:', error);
     }
   };
 
-  const generateStudentId = async () => {
-    const count = students.length + 1;
-    return `BMVS${String(count).padStart(8, '0')}`;
-  };
-
-  const generateTeacherId = async () => {
-    const count = teachers.length + 1;
-    return `BMVT${String(count).padStart(7, '0')}`;
-  };
-
-  const createAccount = async (e) => {
+  const createQuiz = async (e) => {
     e.preventDefault();
 
     try {
-      if (accountType === 'student') {
-        const studentId = await generateStudentId();
-        const email = `${studentId}@student.buthpitiya.lk`;
-        
-        await addDoc(collection(db, 'students'), {
-          name: formData.name,
-          grade: formData.grade,
-          class: formData.class,
-          studentId,
-          email,
-          badges: [],
-          createdAt: new Date().toISOString(),
-        });
+      const quizId = nanoid(10);
+      const quizLink = `${window.location.origin}/quiz/${quizId}`;
 
-        await addDoc(collection(db, 'users'), {
-          username: studentId,
-          email,
-          role: 'student',
-          name: formData.name,
-          password: formData.password,
-        });
+      await addDoc(collection(db, 'quizzes'), {
+        quizId,
+        title: quizData.title,
+        grade: quizData.grade,
+        questions: quizData.questions,
+        teacherId: teacher.teacherId,
+        teacherName: teacher.name,
+        createdAt: new Date().toISOString(),
+        responses: [],
+      });
 
-        toast.success(`Student created! ID: ${studentId}`);
-      } else if (accountType === 'teacher') {
-        const teacherId = await generateTeacherId();
-        const email = `${teacherId}@teacher.buthpitiya.lk`;
-        
-        await addDoc(collection(db, 'teachers'), {
-          name: formData.name,
-          teacherId,
-          email,
-          createdAt: new Date().toISOString(),
-        });
+      // Send to grade chat
+      await addDoc(collection(db, 'chats', `grade-${quizData.grade}`, 'messages'), {
+        text: `📝 New Quiz Available: ${quizData.title}\n\n${quizLink}`,
+        userId: teacher.teacherId,
+        userName: teacher.name,
+        userRole: 'teacher',
+        userBadges: [],
+        timestamp: new Date().toISOString(),
+      });
 
-        await addDoc(collection(db, 'users'), {
-          username: teacherId,
-          email,
-          role: 'teacher',
-          name: formData.name,
-          password: formData.password,
-        });
-
-        toast.success(`Teacher created! ID: ${teacherId}`);
-      }
-
-      setShowCreateModal(false);
-      setFormData({ name: '', grade: '6', class: 'A', password: '' });
-      fetchData();
+      toast.success('Quiz created and shared!');
+      setShowQuizModal(false);
+      setQuizData({
+        title: '',
+        grade: '6',
+        questions: [{ question: '', options: ['', '', '', ''], correctAnswer: 0, marks: 1 }]
+      });
+      checkAuth();
     } catch (error) {
-      console.error('Error creating account:', error);
-      toast.error('Failed to create account');
+      console.error('Error:', error);
+      toast.error('Failed to create quiz');
     }
   };
 
-  const deleteAccount = async (id, type) => {
-    if (!confirm(`Are you sure you want to delete this ${type}?`)) return;
-
-    try {
-      // Delete from Firestore
-      await deleteDoc(doc(db, type === 'student' ? 'students' : 'teachers', id));
-      
-      toast.success(`${type} deleted successfully`);
-      fetchData();
-    } catch (error) {
-      console.error('Error deleting:', error);
-      toast.error('Failed to delete account');
-    }
+  const addQuestion = () => {
+    setQuizData({
+      ...quizData,
+      questions: [...quizData.questions, { question: '', options: ['', '', '', ''], correctAnswer: 0, marks: 1 }]
+    });
   };
+
+  const menuItems = [
+    { label: 'Dashboard', href: '#', icon: '📊' },
+    { label: 'Quizzes', href: '#', icon: '📝' },
+    { label: 'Students', href: '#', icon: '👨‍🎓' },
+    { label: 'Chats', href: '#', icon: '💬' },
+  ];
 
   const logout = async () => {
     await auth.signOut();
     router.push('/login');
   };
 
-  return (
-    <div style={{ minHeight: '100vh' }}>
-      <Toaster position="top-center" />
+  const grades = ['6','7','8','9','10','11','12','13'];
 
-      {/* Navbar */}
-      <div className="navbar">
-        <div className="container" style={{ padding: '16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h1 style={{ fontSize: '20px', color: 'var(--green)', fontWeight: 'bold' }}>
-              Admin Panel
-            </h1>
-            <button onClick={logout} className="btn btn-danger" style={{ padding: '8px 16px' }}>
-              Logout
+  if (!teacher) {
+    return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <div className="spinner" />
+    </div>;
+  }
+
+  return (
+    <div style={{ minHeight: '100vh', background: '#000' }}>
+      <Toaster position="top-center" />
+      <MobileNav user={{ name: teacher.name, role: 'Teacher' }} menuItems={menuItems} onLogout={logout} />
+
+      <div className="container" style={{ paddingTop: '24px', paddingBottom: '24px' }}>
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', overflowX: 'auto' }}>
+          {['dashboard', 'quizzes', 'students', 'chats'].map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={activeTab === tab ? 'btn btn-primary' : 'btn btn-secondary'}
+              style={{ padding: '10px 16px', fontSize: '14px', whiteSpace: 'nowrap' }}
+            >
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {/* Dashboard */}
+        {activeTab === 'dashboard' && (
+          <div className="fade-in">
+            <h2 style={{ color: 'var(--green)', marginBottom: '24px' }}>Welcome, {teacher.name}!</h2>
+            <div className="grid grid-2">
+              <div className="card" style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '40px' }}>📝</div>
+                <h3 style={{ fontSize: '32px', color: 'var(--green)' }}>{quizzes.length}</h3>
+                <p style={{ color: 'var(--gray)' }}>My Quizzes</p>
+              </div>
+              <div className="card" style={{ textAlign: 'center' }}>
+                <div style={{ fontSize: '40px' }}>👨‍🎓</div>
+                <h3 style={{ fontSize: '32px', color: 'var(--green)' }}>{students.length}</h3>
+                <p style={{ color: 'var(--gray)' }}>Total Students</p>
+              </div>
+            </div>
+            <button onClick={() => setShowQuizModal(true)} className="btn btn-primary" style={{ marginTop: '24px' }}>
+              ➕ Create New Quiz
             </button>
           </div>
-        </div>
+        )}
+
+        {/* Quizzes */}
+        {activeTab === 'quizzes' && (
+          <div className="fade-in">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 style={{ color: 'var(--green)' }}>My Quizzes</h2>
+              <button onClick={() => setShowQuizModal(true)} className="btn btn-primary" style={{ padding: '8px 16px' }}>
+                ➕ New
+              </button>
+            </div>
+            <div className="grid grid-2">
+              {quizzes.map(quiz => (
+                <div key={quiz.id} className="card">
+                  <h3 style={{ color: 'white', marginBottom: '8px' }}>{quiz.title}</h3>
+                  <p style={{ color: 'var(--gray)', fontSize: '14px', marginBottom: '12px' }}>
+                    Grade {quiz.grade} • {quiz.questions?.length} questions
+                  </p>
+                  <p style={{ color: 'var(--green)', fontSize: '14px' }}>
+                    {quiz.responses?.length || 0} responses
+                  </p>
+                  <button
+                    onClick={() => router.push(`/teacher/quiz/${quiz.id}`)}
+                    className="btn btn-secondary"
+                    style={{ marginTop: '12px', padding: '8px', fontSize: '12px' }}
+                  >
+                    View Results
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Students */}
+        {activeTab === 'students' && (
+          <div className="fade-in">
+            <h2 style={{ color: 'var(--green)', marginBottom: '16px' }}>Students ({students.length})</h2>
+            <div className="card">
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Grade</th>
+                      <th>Badges</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {students.map(student => (
+                      <tr key={student.id}>
+                        <td>{student.name}</td>
+                        <td>{student.grade}-{student.class}</td>
+                        <td>{student.badges?.length || 0}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Chats */}
+        {activeTab === 'chats' && (
+          <div className="fade-in">
+            <h2 style={{ color: 'var(--green)', marginBottom: '16px' }}>Chat Groups</h2>
+            {!selectedChat ? (
+              <>
+                <div className="grid grid-2">
+                  {grades.map(grade => (
+                    <button
+                      key={grade}
+                      onClick={() => setSelectedChat(`grade-${grade}`)}
+                      className="btn btn-secondary"
+                      style={{ padding: '16px' }}
+                    >
+                      💬 Grade {grade}
+                    </button>
+                  ))}
+                  <button
+                    onClick={() => setSelectedChat('teachers-all')}
+                    className="btn btn-primary"
+                    style={{ padding: '16px' }}
+                  >
+                    👨‍🏫 Teachers Group
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setSelectedChat(null)} className="btn btn-secondary" style={{ marginBottom: '16px' }}>
+                  ← Back
+                </button>
+                <ChatGroup
+                  chatId={selectedChat}
+                  title={selectedChat.replace('-', ' ').toUpperCase()}
+                  user={{ id: teacher.teacherId, name: teacher.name, role: 'teacher', badges: [] }}
+                  allowImages={true}
+                />
+              </>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Content */}
-      <div className="container" style={{ paddingTop: '32px', paddingBottom: '32px' }}>
-        {/* Stats */}
-        <div className="grid grid-2 grid-3" style={{ marginBottom: '32px' }}>
-          <div className="card" style={{ textAlign: 'center' }}>
-            <h3 style={{ fontSize: '36px', color: 'var(--green)', marginBottom: '8px' }}>
-              {students.length}
-            </h3>
-            <p style={{ color: 'var(--gray)' }}>Students</p>
-          </div>
-          <div className="card" style={{ textAlign: 'center' }}>
-            <h3 style={{ fontSize: '36px', color: 'var(--green)', marginBottom: '8px' }}>
-              {teachers.length}
-            </h3>
-            <p style={{ color: 'var(--gray)' }}>Teachers</p>
-          </div>
-        </div>
-
-        {/* Create Button */}
-        <button onClick={() => setShowCreateModal(true)} className="btn btn-primary" style={{ marginBottom: '32px' }}>
-          + Create Account
-        </button>
-
-        {/* Students List */}
-        <div className="card" style={{ marginBottom: '32px' }}>
-          <h2 style={{ color: 'var(--green)', marginBottom: '16px' }}>Students</h2>
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Name</th>
-                  <th>Grade</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {students.map(student => (
-                  <tr key={student.id}>
-                    <td>{student.studentId}</td>
-                    <td>{student.name}</td>
-                    <td>{student.grade}-{student.class}</td>
-                    <td>
-                      <button
-                        onClick={() => deleteAccount(student.id, 'student')}
-                        className="btn btn-danger"
-                        style={{ padding: '6px 12px', fontSize: '14px' }}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Teachers List */}
-        <div className="card">
-          <h2 style={{ color: 'var(--green)', marginBottom: '16px' }}>Teachers</h2>
-          <div className="table-container">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Name</th>
-                  <th>Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {teachers.map(teacher => (
-                  <tr key={teacher.id}>
-                    <td>{teacher.teacherId}</td>
-                    <td>{teacher.name}</td>
-                    <td>
-                      <button
-                        onClick={() => deleteAccount(teacher.id, 'teacher')}
-                        className="btn btn-danger"
-                        style={{ padding: '6px 12px', fontSize: '14px' }}
-                      >
-                        Delete
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* Create Modal */}
-      {showCreateModal && (
+      {/* Create Quiz Modal */}
+      {showQuizModal && (
         <div style={{
           position: 'fixed',
           inset: 0,
-          background: 'rgba(0,0,0,0.9)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          background: 'rgba(0,0,0,0.98)',
+          overflowY: 'auto',
           padding: '20px',
           zIndex: 100
         }}>
-          <div className="glass" style={{ maxWidth: '500px', width: '100%', padding: '24px' }}>
-            <h2 style={{ color: 'var(--green)', marginBottom: '24px' }}>Create Account</h2>
-            
-            <form onSubmit={createAccount}>
+          <div className="glass" style={{ maxWidth: '600px', margin: '0 auto', padding: '24px' }}>
+            <h2 style={{ color: 'var(--green)', marginBottom: '24px' }}>Create Quiz</h2>
+            <form onSubmit={createQuiz}>
               <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'white' }}>Type</label>
-                <select value={accountType} onChange={(e) => setAccountType(e.target.value)}>
-                  <option value="student">Student</option>
-                  <option value="teacher">Teacher</option>
+                <label style={{ display: 'block', marginBottom: '8px', color: 'white' }}>Quiz Title</label>
+                <input
+                  type="text"
+                  value={quizData.title}
+                  onChange={(e) => setQuizData({...quizData, title: e.target.value})}
+                  required
+                />
+              </div>
+              <div style={{ marginBottom: '16px' }}>
+                <label style={{ display: 'block', marginBottom: '8px', color: 'white' }}>Grade</label>
+                <select value={quizData.grade} onChange={(e) => setQuizData({...quizData, grade: e.target.value})}>
+                  {grades.map(g => <option key={g} value={g}>Grade {g}</option>)}
                 </select>
               </div>
 
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'white' }}>Name</label>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
-                  required
-                />
-              </div>
+              {/* Questions */}
+              <h3 style={{ color: 'white', marginBottom: '16px' }}>Questions</h3>
+              {quizData.questions.map((q, qIdx) => (
+                <div key={qIdx} className="card" style={{ marginBottom: '16px', padding: '16px' }}>
+                  <h4 style={{ color: 'var(--green)', marginBottom: '12px' }}>Question {qIdx + 1}</h4>
+                  <input
+                    type="text"
+                    placeholder="Question"
+                    value={q.question}
+                    onChange={(e) => {
+                      const newQuestions = [...quizData.questions];
+                      newQuestions[qIdx].question = e.target.value;
+                      setQuizData({...quizData, questions: newQuestions});
+                    }}
+                    style={{ marginBottom: '12px' }}
+                    required
+                  />
+                  {q.options.map((opt, optIdx) => (
+                    <div key={optIdx} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                      <input
+                        type="radio"
+                        name={`correct-${qIdx}`}
+                        checked={q.correctAnswer === optIdx}
+                        onChange={() => {
+                          const newQuestions = [...quizData.questions];
+                          newQuestions[qIdx].correctAnswer = optIdx;
+                          setQuizData({...quizData, questions: newQuestions});
+                        }}
+                      />
+                      <input
+                        type="text"
+                        placeholder={`Option ${optIdx + 1}`}
+                        value={opt}
+                        onChange={(e) => {
+                          const newQuestions = [...quizData.questions];
+                          newQuestions[qIdx].options[optIdx] = e.target.value;
+                          setQuizData({...quizData, questions: newQuestions});
+                        }}
+                        style={{ flex: 1 }}
+                        required
+                      />
+                    </div>
+                  ))}
+                  <input
+                    type="number"
+                    placeholder="Marks"
+                    value={q.marks}
+                    onChange={(e) => {
+                      const newQuestions = [...quizData.questions];
+                      newQuestions[qIdx].marks = parseInt(e.target.value);
+                      setQuizData({...quizData, questions: newQuestions});
+                    }}
+                    style={{ width: '100px', marginTop: '8px' }}
+                    required
+                  />
+                </div>
+              ))}
 
-              {accountType === 'student' && (
-                <>
-                  <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', marginBottom: '8px', color: 'white' }}>Grade</label>
-                    <select value={formData.grade} onChange={(e) => setFormData({...formData, grade: e.target.value})}>
-                      {['6','7','8','9','10','11','12','13'].map(g => <option key={g} value={g}>{g}</option>)}
-                    </select>
-                  </div>
-                  <div style={{ marginBottom: '16px' }}>
-                    <label style={{ display: 'block', marginBottom: '8px', color: 'white' }}>Class</label>
-                    <select value={formData.class} onChange={(e) => setFormData({...formData, class: e.target.value})}>
-                      {['A','B','C','D'].map(c => <option key={c} value={c}>{c}</option>)}
-                    </select>
-                  </div>
-                </>
-              )}
+              <button type="button" onClick={addQuestion} className="btn btn-secondary" style={{ marginBottom: '16px' }}>
+                ➕ Add Question
+              </button>
 
-              <div style={{ marginBottom: '24px' }}>
-                <label style={{ display: 'block', marginBottom: '8px', color: 'white' }}>Password</label>
-                <input
-                  type="password"
-                  value={formData.password}
-                  onChange={(e) => setFormData({...formData, password: e.target.value})}
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'flex', gap: '12px' }}>
-                <button type="submit" className="btn btn-primary">Create</button>
-                <button type="button" onClick={() => setShowCreateModal(false)} className="btn btn-secondary">
-                  Cancel
-                </button>
+              <div style={{ display: 'grid', gap: '12px' }}>
+                <button type="submit" className="btn btn-primary">Create & Share Quiz</button>
+                <button type="button" onClick={() => setShowQuizModal(false)} className="btn btn-secondary">Cancel</button>
               </div>
             </form>
           </div>
@@ -313,4 +372,4 @@ export default function AdminDashboard() {
       )}
     </div>
   );
-}
+                    }
