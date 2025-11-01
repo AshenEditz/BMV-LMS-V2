@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { auth, db, storage } from '../../firebase';
+import { auth, db } from '../../firebase';
 import { collection, addDoc, getDocs, deleteDoc, doc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+// ❌ REMOVED: Firebase Storage imports
 import { motion } from 'framer-motion';
 import toast, { Toaster } from 'react-hot-toast';
 import Image from 'next/image';
@@ -17,6 +17,7 @@ export default function MediaDashboard() {
     description: '',
     image: null,
   });
+  const [imagePreview, setImagePreview] = useState(null);
 
   useEffect(() => {
     checkAuth();
@@ -42,7 +43,64 @@ export default function MediaDashboard() {
 
   const handleImageChange = (e) => {
     if (e.target.files[0]) {
-      setFormData({ ...formData, image: e.target.files[0] });
+      const file = e.target.files[0];
+      
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error('Image size should be less than 5MB');
+        return;
+      }
+
+      setFormData({ ...formData, image: file });
+
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const uploadImageToGitHub = async (file) => {
+    try {
+      const reader = new FileReader();
+      
+      return new Promise((resolve, reject) => {
+        reader.onloadend = async () => {
+          try {
+            const base64 = reader.result;
+            const filename = `news_${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+
+            const response = await fetch('/api/upload-to-github', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                image: base64,
+                filename: filename,
+                path: 'news-images',
+              }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+              throw new Error(data.error || 'Upload failed');
+            }
+
+            resolve(data.url);
+          } catch (error) {
+            reject(error);
+          }
+        };
+
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    } catch (error) {
+      console.error('Upload error:', error);
+      throw error;
     }
   };
 
@@ -54,9 +112,9 @@ export default function MediaDashboard() {
       let imageUrl = '';
 
       if (formData.image) {
-        const storageRef = ref(storage, `news/${Date.now()}_${formData.image.name}`);
-        await uploadBytes(storageRef, formData.image);
-        imageUrl = await getDownloadURL(storageRef);
+        toast.loading('Uploading image to GitHub...');
+        imageUrl = await uploadImageToGitHub(formData.image);
+        toast.dismiss();
       }
 
       await addDoc(collection(db, 'news'), {
@@ -69,6 +127,7 @@ export default function MediaDashboard() {
 
       toast.success('News uploaded successfully!');
       setFormData({ title: '', description: '', image: null });
+      setImagePreview(null);
       fetchNews();
     } catch (error) {
       console.error('Error uploading news:', error);
@@ -127,7 +186,7 @@ export default function MediaDashboard() {
               <h1 className="text-4xl font-bold text-white">
                 📱 Media Unit Dashboard
               </h1>
-              <p className="text-gray-300">Manage school news and updates</p>
+              <p className="text-gray-300">Manage school news and updates (GitHub Storage)</p>
             </div>
           </div>
         </motion.div>
@@ -167,13 +226,28 @@ export default function MediaDashboard() {
             </div>
 
             <div>
-              <label className="block text-white mb-2">Image</label>
+              <label className="block text-white mb-2">Image (Optional)</label>
               <input
                 type="file"
                 accept="image/*"
                 onChange={handleImageChange}
                 className="w-full px-4 py-3 rounded-lg bg-white/10 border border-white/20 text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-primary file:text-white file:cursor-pointer"
               />
+              {imagePreview && (
+                <div className="mt-3 relative inline-block">
+                  <img src={imagePreview} alt="Preview" className="h-32 rounded-lg" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData({ ...formData, image: null });
+                      setImagePreview(null);
+                    }}
+                    className="absolute -top-2 -right-2 bg-red-500 hover:bg-red-600 text-white rounded-full w-6 h-6 flex items-center justify-center"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
             </div>
 
             <motion.button
@@ -183,7 +257,7 @@ export default function MediaDashboard() {
               disabled={uploading}
               className="w-full bg-primary hover:bg-green-600 text-white font-bold py-3 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {uploading ? 'Uploading...' : '📤 Upload News'}
+              {uploading ? 'Uploading to GitHub...' : '📤 Upload News'}
             </motion.button>
           </form>
         </motion.div>
@@ -211,6 +285,9 @@ export default function MediaDashboard() {
                     src={item.imageUrl}
                     alt={item.title}
                     className="w-full h-48 object-cover"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                    }}
                   />
                 )}
                 <div className="p-4">
