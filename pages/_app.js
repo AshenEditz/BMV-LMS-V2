@@ -5,17 +5,15 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth } from '../firebase';
 import { Toaster } from 'react-hot-toast';
 import { motion, AnimatePresence } from 'framer-motion';
+import ErrorBoundary from '../components/ErrorBoundary';
 
 function MyApp({ Component, pageProps }) {
   const [loading, setLoading] = useState(true);
   const router = useRouter();
 
   useEffect(() => {
-    // Check authentication state
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setLoading(false);
-      
-      // Redirect to login if not authenticated (except for public pages)
       const publicPages = ['/', '/login'];
       if (!user && !publicPages.includes(router.pathname)) {
         router.push('/login');
@@ -24,6 +22,16 @@ function MyApp({ Component, pageProps }) {
 
     return () => unsubscribe();
   }, [router]);
+
+  // Service Worker Registration (PWA)
+  useEffect(() => {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker
+        .register('/sw.js')
+        .then(() => console.log('Service Worker registered'))
+        .catch((err) => console.log('Service Worker registration failed:', err));
+    }
+  }, []);
 
   if (loading) {
     return (
@@ -48,7 +56,7 @@ function MyApp({ Component, pageProps }) {
   }
 
   return (
-    <>
+    <ErrorBoundary>
       <Toaster 
         position="top-center"
         toastOptions={{
@@ -75,7 +83,7 @@ function MyApp({ Component, pageProps }) {
       <AnimatePresence mode="wait">
         <Component {...pageProps} key={router.pathname} />
       </AnimatePresence>
-    </>
+    </ErrorBoundary>
   );
 }
 
