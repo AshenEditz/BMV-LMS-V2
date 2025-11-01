@@ -1,51 +1,47 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { auth, db } from '../../firebase';
-import { collection, getDocs, addDoc, onSnapshot } from 'firebase/firestore';
-import { motion } from 'framer-motion';
+import { collection, getDocs, addDoc, updateDoc, doc } from 'firebase/firestore';
 import toast, { Toaster } from 'react-hot-toast';
-import PrincipalLayout from '../../components/PrincipalLayout';
-import ChatBox from '../../components/ChatBox';
-import { FaUsers, FaChalkboardTeacher, FaBullhorn, FaMedal } from 'react-icons/fa';
+import MobileNav from '../../components/MobileNav';
+import ChatGroup from '../../components/ChatGroup';
+import { addBadge, removeBadge } from '../../lib/badges';
 
 export default function PrincipalDashboard() {
   const router = useRouter();
-  const [principal, setPrincipal] = useState(null);
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [announcement, setAnnouncement] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [selectedChat, setSelectedChat] = useState(null);
+  const [showBadgeModal, setShowBadgeModal] = useState(false);
+  const [selectedStudent, setSelectedStudent] = useState(null);
 
   useEffect(() => {
     checkAuth();
+    fetchData();
   }, []);
 
-  const checkAuth = async () => {
+  const checkAuth = () => {
     const user = auth.currentUser;
-    if (!user) {
-      router.push('/login');
-      return;
-    }
+    if (!user) router.push('/login');
+  };
 
+  const fetchData = async () => {
     try {
-      setPrincipal({
-        id: 'BMVP001',
-        name: 'Principal',
-        email: user.email,
-      });
+      const studentsSnap = await getDocs(collection(db, 'students'));
+      const studentsList = studentsSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(s => s.studentId);
+      setStudents(studentsList);
 
-      // Fetch students
-      const studentsSnapshot = await getDocs(collection(db, 'students'));
-      setStudents(studentsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-
-      // Fetch teachers
-      const teachersSnapshot = await getDocs(collection(db, 'teachers'));
-      setTeachers(teachersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-
-      setLoading(false);
+      const teachersSnap = await getDocs(collection(db, 'teachers'));
+      const teachersList = teachersSnap.docs
+        .map(doc => ({ id: doc.id, ...doc.data() }))
+        .filter(t => t.teacherId);
+      setTeachers(teachersList);
     } catch (error) {
-      console.error('Error fetching data:', error);
-      setLoading(false);
+      console.error('Error:', error);
     }
   };
 
@@ -56,244 +52,270 @@ export default function PrincipalDashboard() {
     try {
       await addDoc(collection(db, 'announcements'), {
         message: announcement,
+        type: 'principal',
         timestamp: new Date().toISOString(),
         author: 'Principal',
       });
 
-      // Also send to all class chats
-      const grades = ['6', '7', '8', '9', '10', '11', '12', '13'];
-      const classes = ['A', 'B', 'C', 'D'];
-
+      // Send to all grade chats
+      const grades = ['6','7','8','9','10','11','12','13'];
       for (const grade of grades) {
-        for (const cls of classes) {
-          await addDoc(collection(db, 'chats', `grade-${grade}-${cls}`, 'messages'), {
-            text: `📢 Principal Announcement: ${announcement}`,
-            userId: 'principal',
-            userName: 'Principal',
-            userBadges: [],
-            timestamp: new Date().toISOString(),
-          });
-        }
+        await addDoc(collection(db, 'chats', `grade-${grade}`, 'messages'), {
+          text: `📢 Principal Announcement: ${announcement}`,
+          userId: 'principal',
+          userName: 'Principal',
+          userRole: 'principal',
+          userBadges: [{ emoji: '👑', name: 'Principal' }],
+          timestamp: new Date().toISOString(),
+        });
       }
 
       // Send to teachers group
-      await addDoc(collection(db, 'chats', 'teachers-group', 'messages'), {
+      await addDoc(collection(db, 'chats', 'teachers-all', 'messages'), {
         text: `📢 Principal Announcement: ${announcement}`,
         userId: 'principal',
         userName: 'Principal',
-        userBadges: [],
+        userRole: 'principal',
+        userBadges: [{ emoji: '👑', name: 'Principal' }],
         timestamp: new Date().toISOString(),
       });
 
-      toast.success('Announcement sent to all!');
+      toast.success('Announcement sent to everyone!');
       setAnnouncement('');
     } catch (error) {
-      console.error('Error sending announcement:', error);
+      console.error('Error:', error);
       toast.error('Failed to send announcement');
     }
   };
 
-  const giveBestChildBadge = async (studentId) => {
+  const giveBadge = async (studentId, badgeType) => {
     try {
-      const studentDoc = students.find(s => s.studentId === studentId);
-      if (!studentDoc) {
-        toast.error('Student not found');
-        return;
-      }
-
-      const badges = studentDoc.badges || [];
-      const newBadge = {
-        type: 'best-child',
-        awardedBy: 'Principal',
-        awardedAt: new Date().toISOString(),
-        expiresAt: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-      };
-
-      await updateDoc(doc(db, 'students', studentDoc.id), {
-        badges: [...badges, newBadge]
-      });
-
-      toast.success(`Best Child badge awarded to ${studentDoc.name}!`);
+      const student = students.find(s => s.id === studentId);
+      const updatedBadges = addBadge(student.badges, badgeType, 'Principal');
+      await updateDoc(doc(db, 'students', studentId), { badges: updatedBadges });
+      toast.success('Badge awarded!');
+      fetchData();
+      setShowBadgeModal(false);
     } catch (error) {
-      console.error('Error giving badge:', error);
       toast.error('Failed to award badge');
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-white text-2xl">Loading...</div>
-      </div>
-    );
-  }
+  const removeBadgeFromStudent = async (studentId, badgeType) => {
+    try {
+      const student = students.find(s => s.id === studentId);
+      const updatedBadges = removeBadge(student.badges, badgeType);
+      await updateDoc(doc(db, 'students', studentId), { badges: updatedBadges });
+      toast.success('Badge removed!');
+      fetchData();
+    } catch (error) {
+      toast.error('Failed to remove badge');
+    }
+  };
+
+  const menuItems = [
+    { label: 'Dashboard', href: '#', icon: '📊' },
+    { label: 'Announcements', href: '#', icon: '📢' },
+    { label: 'Students', href: '#', icon: '👨‍🎓' },
+    { label: 'Chats', href: '#', icon: '💬' },
+  ];
+
+  const logout = async () => {
+    await auth.signOut();
+    router.push('/login');
+  };
+
+  const chatGroups = [
+    'grade-6', 'grade-7', 'grade-8', 'grade-9',
+    'grade-10', 'grade-11', 'grade-12', 'grade-13',
+    'teachers-all', 'prefects-group'
+  ];
 
   return (
-    <PrincipalLayout>
+    <div style={{ minHeight: '100vh', background: '#000' }}>
       <Toaster position="top-center" />
-      
-      {/* Animated Background */}
-      <div className="fixed inset-0 pointer-events-none overflow-hidden">
-        <motion.div
-          animate={{
-            scale: [1, 1.2, 1],
-            rotate: [0, 90, 0],
-            opacity: [0.1, 0.2, 0.1],
-          }}
-          transition={{ duration: 20, repeat: Infinity }}
-          className="absolute top-0 right-0 w-96 h-96 bg-primary rounded-full blur-3xl"
-        />
-        <motion.div
-          animate={{
-            scale: [1.2, 1, 1.2],
-            rotate: [90, 0, 90],
-            opacity: [0.1, 0.2, 0.1],
-          }}
-          transition={{ duration: 20, repeat: Infinity }}
-          className="absolute bottom-0 left-0 w-96 h-96 bg-blue-500 rounded-full blur-3xl"
-        />
-      </div>
+      <MobileNav user={{ name: 'Principal', role: 'Principal' }} menuItems={menuItems} onLogout={logout} />
 
-      <div className="relative z-10 p-6">
-        {/* Welcome Message */}
-        <motion.div
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.8 }}
-          className="mb-8 text-center"
-        >
-          <motion.h1
-            animate={{ y: [0, -10, 0] }}
-            transition={{ duration: 2, repeat: Infinity }}
-            className="text-5xl font-bold text-white mb-2"
-          >
-            ආයුබෝවන් Principal Sir! 👑
-          </motion.h1>
-          <p className="text-gray-300 text-xl">Buthpitiya M.V Management Dashboard</p>
-        </motion.div>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <motion.div
-            initial={{ opacity: 0, x: -50 }}
-            animate={{ opacity: 1, x: 0 }}
-            whileHover={{ scale: 1.05 }}
-            className="glass-effect p-8 text-center"
-          >
-            <FaUsers className="text-6xl text-primary mx-auto mb-4" />
-            <h3 className="text-4xl font-bold text-white">{students.length}</h3>
-            <p className="text-gray-300 text-lg">Total Students</p>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, x: 50 }}
-            animate={{ opacity: 1, x: 0 }}
-            whileHover={{ scale: 1.05 }}
-            className="glass-effect p-8 text-center"
-          >
-            <FaChalkboardTeacher className="text-6xl text-primary mx-auto mb-4" />
-            <h3 className="text-4xl font-bold text-white">{teachers.length}</h3>
-            <p className="text-gray-300 text-lg">Total Teachers</p>
-          </motion.div>
-        </div>
-
-        {/* Announcement Section */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="glass-effect p-6 mb-8"
-        >
-          <h2 className="text-2xl font-bold text-white mb-4 flex items-center gap-2">
-            <FaBullhorn className="text-primary" /> Send Announcement
-          </h2>
-          <form onSubmit={sendAnnouncement} className="space-y-4">
-            <textarea
-              value={announcement}
-              onChange={(e) => setAnnouncement(e.target.value)}
-              placeholder="Type your announcement here..."
-              rows="4"
-              className="w-full px-4 py-3 rounded-lg bg-white/10 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-              required
-            />
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              type="submit"
-              className="w-full bg-primary hover:bg-green-600 text-white font-bold py-3 rounded-lg"
+      <div className="container" style={{ paddingTop: '24px', paddingBottom: '24px' }}>
+        {/* Tab Buttons */}
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px', overflowX: 'auto' }}>
+          {['dashboard', 'announcements', 'students', 'chats'].map(tab => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={activeTab === tab ? 'btn btn-primary' : 'btn btn-secondary'}
+              style={{ padding: '10px 16px', fontSize: '14px', whiteSpace: 'nowrap' }}
             >
-              📢 Send to Everyone
-            </motion.button>
-          </form>
-        </motion.div>
+              {tab.charAt(0).toUpperCase() + tab.slice(1)}
+            </button>
+          ))}
+        </div>
 
-        {/* Students & Teachers Details */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* Students List */}
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="glass-effect p-6"
-          >
-            <h2 className="text-2xl font-bold text-white mb-4">Students Overview</h2>
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {students.slice(0, 10).map(student => (
-                <div key={student.id} className="bg-white/5 p-3 rounded-lg flex justify-between items-center">
-                  <div>
-                    <p className="text-white font-semibold">{student.name}</p>
-                    <p className="text-gray-400 text-sm">Grade {student.grade}-{student.class}</p>
-                  </div>
+        {/* Dashboard */}
+        {activeTab === 'dashboard' && (
+          <div className="fade-in">
+            <h2 style={{ color: 'var(--green)', marginBottom: '24px', fontSize: '24px' }}>
+              Welcome, Principal 👑
+            </h2>
+            <div className="grid grid-2">
+              <div className="card" style={{ textAlign: 'center', padding: '24px' }}>
+                <div style={{ fontSize: '48px', marginBottom: '8px' }}>👨‍🎓</div>
+                <h3 style={{ fontSize: '36px', color: 'var(--green)' }}>{students.length}</h3>
+                <p style={{ color: 'var(--gray)' }}>Total Students</p>
+              </div>
+              <div className="card" style={{ textAlign: 'center', padding: '24px' }}>
+                <div style={{ fontSize: '48px', marginBottom: '8px' }}>👨‍🏫</div>
+                <h3 style={{ fontSize: '36px', color: 'var(--green)' }}>{teachers.length}</h3>
+                <p style={{ color: 'var(--gray)' }}>Total Teachers</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Announcements */}
+        {activeTab === 'announcements' && (
+          <div className="fade-in">
+            <h2 style={{ color: 'var(--green)', marginBottom: '16px' }}>Send Announcement</h2>
+            <div className="card">
+              <form onSubmit={sendAnnouncement}>
+                <textarea
+                  value={announcement}
+                  onChange={(e) => setAnnouncement(e.target.value)}
+                  placeholder="Type announcement for all students and teachers..."
+                  rows="5"
+                  required
+                  style={{ marginBottom: '16px' }}
+                />
+                <button type="submit" className="btn btn-primary">
+                  📢 Send to Everyone
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Students */}
+        {activeTab === 'students' && (
+          <div className="fade-in">
+            <h2 style={{ color: 'var(--green)', marginBottom: '16px' }}>Students Management</h2>
+            <div className="card">
+              <div className="table-container">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Name</th>
+                      <th>Grade</th>
+                      <th>Badges</th>
+                      <th>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {students.map(student => (
+                      <tr key={student.id}>
+                        <td>{student.name}</td>
+                        <td>{student.grade}-{student.class}</td>
+                        <td>{student.badges?.length || 0}</td>
+                        <td>
+                          <button
+                            onClick={() => {
+                              setSelectedStudent(student);
+                              setShowBadgeModal(true);
+                            }}
+                            className="btn btn-primary"
+                            style={{ padding: '6px 12px', fontSize: '12px' }}
+                          >
+                            🌟 Badge
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Chats */}
+        {activeTab === 'chats' && (
+          <div className="fade-in">
+            <h2 style={{ color: 'var(--green)', marginBottom: '16px' }}>Chat Groups</h2>
+            {!selectedChat ? (
+              <div className="grid grid-2">
+                {chatGroups.map(chatId => (
                   <button
-                    onClick={() => giveBestChildBadge(student.studentId)}
-                    className="bg-pink-500 hover:bg-pink-600 text-white px-3 py-1 rounded text-sm"
+                    key={chatId}
+                    onClick={() => setSelectedChat(chatId)}
+                    className="btn btn-secondary"
+                    style={{ padding: '16px', textAlign: 'left' }}
                   >
-                    👑 Best Child
+                    💬 {chatId.replace('-', ' ').toUpperCase()}
                   </button>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-
-          {/* Teachers List */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="glass-effect p-6"
-          >
-            <h2 className="text-2xl font-bold text-white mb-4">Teachers Overview</h2>
-            <div className="space-y-2 max-h-96 overflow-y-auto">
-              {teachers.map(teacher => (
-                <div key={teacher.id} className="bg-white/5 p-3 rounded-lg">
-                  <p className="text-white font-semibold">{teacher.name}</p>
-                  <p className="text-gray-400 text-sm">{teacher.teacherId}</p>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-        </div>
-
-        {/* Chat Sections */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <ChatBox
-            chatId="teachers-group"
-            title="Teachers Group 👨‍🏫"
-            user={{
-              id: 'principal',
-              name: 'Principal',
-              badges: []
-            }}
-          />
-
-          <ChatBox
-            chatId="grade-13-A"
-            title="Grade 13-A (Example)"
-            user={{
-              id: 'principal',
-              name: 'Principal',
-              badges: []
-            }}
-          />
-        </div>
+                ))}
+              </div>
+            ) : (
+              <>
+                <button
+                  onClick={() => setSelectedChat(null)}
+                  className="btn btn-secondary"
+                  style={{ marginBottom: '16px' }}
+                >
+                  ← Back to Chat List
+                </button>
+                <ChatGroup
+                  chatId={selectedChat}
+                  title={selectedChat.replace('-', ' ').toUpperCase()}
+                  user={{ id: 'principal', name: 'Principal', role: 'principal', badges: [{ emoji: '👑', name: 'Principal' }] }}
+                  allowImages={true}
+                />
+              </>
+            )}
+          </div>
+        )}
       </div>
-    </PrincipalLayout>
+
+      {/* Badge Modal (Good Student Only) */}
+      {showBadgeModal && selectedStudent && (
+        <div style={{
+          position: 'fixed',
+          inset: 0,
+          background: 'rgba(0,0,0,0.95)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          padding: '20px',
+          zIndex: 100
+        }}>
+          <div className="glass" style={{ maxWidth: '400px', width: '100%', padding: '24px' }}>
+            <h2 style={{ color: 'var(--green)', marginBottom: '16px' }}>
+              Good Student Badge
+            </h2>
+            <p style={{ color: 'white', marginBottom: '16px' }}>
+              {selectedStudent.name}
+            </p>
+            <div style={{ marginBottom: '16px' }}>
+              {selectedStudent.badges?.find(b => b.type === 'good-student') ? (
+                <button
+                  onClick={() => removeBadgeFromStudent(selectedStudent.id, 'good-student')}
+                  className="btn btn-danger"
+                >
+                  Remove Good Student Badge 🌟
+                </button>
+              ) : (
+                <button
+                  onClick={() => giveBadge(selectedStudent.id, 'good-student')}
+                  className="btn btn-primary"
+                >
+                  Award Good Student Badge 🌟
+                </button>
+              )}
+            </div>
+            <button onClick={() => setShowBadgeModal(false)} className="btn btn-secondary">
+              Close
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
         }
