@@ -9,12 +9,16 @@ const nextConfig = {
       'github.com',
       'firebasestorage.googleapis.com',
     ],
-    unoptimized: true,
-  },
-  env: {
-    NEXT_PUBLIC_SCHOOL_NAME: process.env.NEXT_PUBLIC_SCHOOL_NAME,
-    NEXT_PUBLIC_SCHOOL_LOGO: process.env.NEXT_PUBLIC_SCHOOL_LOGO,
-    NEXT_PUBLIC_MAIN_WEBSITE: process.env.NEXT_PUBLIC_MAIN_WEBSITE,
+    remotePatterns: [
+      {
+        protocol: 'https',
+        hostname: 'i.imgur.com',
+      },
+      {
+        protocol: 'https',
+        hostname: 'raw.githubusercontent.com',
+      },
+    ],
   },
 }
 
