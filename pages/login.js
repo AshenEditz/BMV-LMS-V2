@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '../firebase';
 import toast, { Toaster } from 'react-hot-toast';
 
@@ -23,13 +23,6 @@ export default function Login() {
           await signInWithEmailAndPassword(auth, email, password);
         } catch {
           await createUserWithEmailAndPassword(auth, email, password);
-          await setDoc(doc(db, 'users', 'BMVADMIN'), {
-            username: 'BMVADMIN',
-            email,
-            role: 'admin',
-            name: 'Administrator',
-            createdAt: new Date().toISOString()
-          });
         }
         toast.success('Welcome Administrator!');
         setTimeout(() => router.push('/admin'), 1000);
@@ -43,34 +36,51 @@ export default function Login() {
           await signInWithEmailAndPassword(auth, email, password);
         } catch {
           await createUserWithEmailAndPassword(auth, email, password);
-          await setDoc(doc(db, 'users', 'BmvMedia'), {
-            username: 'BmvMedia',
-            email,
-            role: 'media',
-            name: 'Media Unit',
-            createdAt: new Date().toISOString()
-          });
         }
         toast.success('Welcome Media Unit!');
         setTimeout(() => router.push('/media'), 1000);
         return;
       }
 
-      // STUDENT/TEACHER LOGIN
-      const userDoc = await getDoc(doc(db, 'users', username));
-      if (!userDoc.exists()) {
+      // STUDENT/TEACHER LOGIN - Search in collections
+      let userData = null;
+      let userEmail = null;
+
+      // Check students
+      const studentsQuery = query(collection(db, 'students'), where('studentId', '==', username));
+      const studentsSnap = await getDocs(studentsQuery);
+      
+      if (!studentsSnap.empty) {
+        userData = studentsSnap.docs[0].data();
+        userEmail = userData.email;
+        userData.role = 'student';
+      }
+
+      // Check teachers if not found
+      if (!userData) {
+        const teachersQuery = query(collection(db, 'teachers'), where('teacherId', '==', username));
+        const teachersSnap = await getDocs(teachersQuery);
+        
+        if (!teachersSnap.empty) {
+          userData = teachersSnap.docs[0].data();
+          userEmail = userData.email;
+          userData.role = 'teacher';
+        }
+      }
+
+      if (!userData) {
         toast.error('Invalid username or password');
         setLoading(false);
         return;
       }
 
-      const userData = userDoc.data();
+      // Try to login with Firebase Auth
       try {
-        await signInWithEmailAndPassword(auth, userData.email, password);
+        await signInWithEmailAndPassword(auth, userEmail, password);
       } catch (authError) {
         if (authError.code === 'auth/user-not-found') {
-          // Create auth account
-          await createUserWithEmailAndPassword(auth, userData.email, password);
+          // Create the auth user
+          await createUserWithEmailAndPassword(auth, userEmail, password);
         } else if (authError.code === 'auth/wrong-password') {
           toast.error('Wrong password');
           setLoading(false);
@@ -96,7 +106,6 @@ export default function Login() {
       <Toaster position="top-center" />
       
       <div className="glass" style={{ maxWidth: '400px', width: '100%', padding: '32px' }}>
-        {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <div style={{ 
             width: '100px', 
@@ -123,22 +132,20 @@ export default function Login() {
           <p style={{ color: 'var(--gray)' }}>Learning Management System</p>
         </div>
 
-        {/* Warning */}
-        <div className="alert alert-warning" style={{ fontSize: '13px' }}>
-          මෙය අපගේ නිල LMS පද්ධතියයි. පාසලේ දුන් User Name සහ Password භාවිතා කරන්න.
+        <div className="alert alert-warning" style={{ fontSize: '13px', marginBottom: '24px' }}>
+          Use your Student ID or Teacher ID as username
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleLogin} style={{ marginTop: '24px' }}>
+        <form onSubmit={handleLogin}>
           <div style={{ marginBottom: '16px' }}>
             <label style={{ display: 'block', marginBottom: '8px', color: 'white', fontWeight: '600' }}>
-              Username
+              Username (Student/Teacher ID)
             </label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter username"
+              placeholder="e.g., BMVS00000001"
               required
             />
           </div>
@@ -161,17 +168,9 @@ export default function Login() {
           </button>
         </form>
 
-        {/* Test Credentials */}
         <div style={{ marginTop: '20px', padding: '12px', background: 'rgba(0,255,136,0.1)', borderRadius: '8px', fontSize: '12px', textAlign: 'center' }}>
-          <p style={{ color: 'var(--green)', marginBottom: '4px' }}>Test Login:</p>
-          <p style={{ color: 'white' }}>Admin: BMVADMIN / BMV@2009</p>
-        </div>
-
-        {/* Link */}
-        <div style={{ marginTop: '20px', textAlign: 'center' }}>
-          <a href="https://buthpitiyamv.schweb.lk" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--green)', fontSize: '14px' }}>
-            Visit Main Website →
-          </a>
+          <p style={{ color: 'var(--green)', marginBottom: '4px' }}>Admin Login:</p>
+          <p style={{ color: 'white' }}>BMVADMIN / BMV@2009</p>
         </div>
       </div>
     </div>
