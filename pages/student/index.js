@@ -1,17 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { auth, db } from '../../firebase';
-import { collection, query, where, getDocs, onSnapshot, addDoc } from 'firebase/firestore';
-import { motion } from 'framer-motion';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import toast, { Toaster } from 'react-hot-toast';
-import StudentLayout from '../../components/StudentLayout';
-import BadgeDisplay from '../../components/BadgeDisplay';
-import ChatBox from '../../components/ChatBox';
 
 export default function StudentDashboard() {
   const router = useRouter();
   const [student, setStudent] = useState(null);
-  const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -26,120 +21,84 @@ export default function StudentDashboard() {
     }
 
     try {
-      // Get student data
       const studentsRef = collection(db, 'students');
       const q = query(studentsRef, where('email', '==', user.email));
       const snapshot = await getDocs(q);
       
       if (!snapshot.empty) {
-        const studentData = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() };
-        setStudent(studentData);
-        
-        // Fetch announcements
-        const announcementsRef = collection(db, 'announcements');
-        onSnapshot(announcementsRef, (snapshot) => {
-          const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-          setAnnouncements(data.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)));
-        });
+        setStudent({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() });
+      } else {
+        toast.error('Student data not found');
+        router.push('/login');
       }
-      
-      setLoading(false);
     } catch (error) {
-      console.error('Error fetching student data:', error);
+      console.error('Error:', error);
+      toast.error('Failed to load student data');
+    } finally {
       setLoading(false);
     }
   };
 
+  const logout = async () => {
+    await auth.signOut();
+    router.push('/login');
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-white text-2xl">Loading...</div>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="spinner" />
       </div>
     );
   }
 
   return (
-    <StudentLayout student={student}>
+    <div style={{ minHeight: '100vh' }}>
       <Toaster position="top-center" />
-      
-      <div className="p-6">
-        {/* Welcome Message */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
-        >
-          <h1 className="text-4xl font-bold text-white mb-2">
-            ආයුබෝවන් {student?.name}! 🎓
-          </h1>
-          <p className="text-gray-300">Welcome to your learning dashboard</p>
-        </motion.div>
 
-        {/* Student Info Card */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <motion.div
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="glass-effect p-6"
-          >
-            <h2 className="text-2xl font-bold text-white mb-4">My Information</h2>
-            <div className="space-y-2 text-white">
-              <p><span className="font-semibold">Student ID:</span> {student?.studentId}</p>
-              <p><span className="font-semibold">Grade:</span> {student?.grade}</p>
-              <p><span className="font-semibold">Class:</span> {student?.class}</p>
-              <p><span className="font-semibold">Badges:</span> {student?.badges?.length || 0}</p>
+      {/* Navbar */}
+      <div className="navbar">
+        <div className="container" style={{ padding: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h1 style={{ fontSize: '18px', color: 'var(--green)' }}>
+              {student?.name}
+            </h1>
+            <button onClick={logout} className="btn btn-danger" style={{ padding: '8px 16px', fontSize: '14px' }}>
+              Logout
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="container" style={{ paddingTop: '32px' }}>
+        <div className="card" style={{ marginBottom: '24px' }}>
+          <h2 style={{ color: 'var(--green)', marginBottom: '16px' }}>My Information</h2>
+          <div style={{ display: 'grid', gap: '12px' }}>
+            <div>
+              <p style={{ color: 'var(--gray)', fontSize: '14px' }}>Student ID</p>
+              <p style={{ color: 'white', fontSize: '18px', fontWeight: 'bold' }}>{student?.studentId}</p>
             </div>
-          </motion.div>
-
-          {/* Badges Display */}
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="glass-effect p-6"
-          >
-            <h2 className="text-2xl font-bold text-white mb-4">My Badges</h2>
-            <BadgeDisplay badges={student?.badges || []} />
-          </motion.div>
+            <div>
+              <p style={{ color: 'var(--gray)', fontSize: '14px' }}>Grade</p>
+              <p style={{ color: 'white', fontSize: '18px', fontWeight: 'bold' }}>
+                {student?.grade}-{student?.class}
+              </p>
+            </div>
+            <div>
+              <p style={{ color: 'var(--gray)', fontSize: '14px' }}>Badges</p>
+              <p style={{ color: 'var(--green)', fontSize: '18px', fontWeight: 'bold' }}>
+                {student?.badges?.length || 0}
+              </p>
+            </div>
+          </div>
         </div>
 
-        {/* Announcements */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="glass-effect p-6 mb-8"
-        >
-          <h2 className="text-2xl font-bold text-white mb-4">📢 Principal Announcements</h2>
-          <div className="space-y-4 max-h-96 overflow-y-auto">
-            {announcements.map(announcement => (
-              <motion.div
-                key={announcement.id}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="bg-white/5 p-4 rounded-lg border-l-4 border-primary"
-              >
-                <p className="text-white mb-2">{announcement.message}</p>
-                <p className="text-gray-400 text-sm">
-                  {new Date(announcement.timestamp).toLocaleString()}
-                </p>
-              </motion.div>
-            ))}
-            {announcements.length === 0 && (
-              <p className="text-gray-400 text-center">No announcements yet</p>
-            )}
-          </div>
-        </motion.div>
-
-        {/* Grade Chat */}
-        <ChatBox
-          chatId={`grade-${student?.grade}-${student?.class}`}
-          title={`Grade ${student?.grade}-${student?.class} Chat`}
-          user={{
-            id: student?.studentId,
-            name: student?.name,
-            badges: student?.badges || []
-          }}
-        />
+        <div className="alert alert-success">
+          <p>✅ Welcome to Buthpitiya M.V LMS!</p>
+          <p style={{ fontSize: '14px', marginTop: '8px' }}>Your account is active and ready to use.</p>
+        </div>
       </div>
-    </StudentLayout>
+    </div>
   );
 }
