@@ -2,9 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 import { db } from '../firebase';
 import { collection, addDoc, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { FaPaperPlane, FaSmile, FaImage, FaTimes, FaPaperclip } from 'react-icons/fa';
+import { FaPaperPlane, FaSmile, FaImage, FaTimes } from 'react-icons/fa';
 import StickerPicker from './StickerPicker';
-import ImagePreview from './ImagePreview';
 import toast from 'react-hot-toast';
 
 export default function ChatBox({ chatId, title, user }) {
@@ -27,7 +26,6 @@ export default function ChatBox({ chatId, title, user }) {
       setMessages(msgs.reverse());
     });
 
-    // Simulate online count
     setOnlineCount(Math.floor(Math.random() * 20) + 5);
 
     return () => unsubscribe();
@@ -44,14 +42,13 @@ export default function ChatBox({ chatId, title, user }) {
   const handleImageSelect = (e) => {
     const file = e.target.files[0];
     if (file) {
-      if (file.size > 5 * 1024 * 1024) { // 5MB limit
+      if (file.size > 5 * 1024 * 1024) {
         toast.error('Image size should be less than 5MB');
         return;
       }
 
       setSelectedImage(file);
       
-      // Create preview
       const reader = new FileReader();
       reader.onloadend = () => {
         setImagePreview(reader.result);
@@ -64,7 +61,6 @@ export default function ChatBox({ chatId, title, user }) {
     try {
       setUploading(true);
 
-      // Convert file to base64
       const reader = new FileReader();
       
       return new Promise((resolve, reject) => {
@@ -116,7 +112,7 @@ export default function ChatBox({ chatId, title, user }) {
       let imageUrl = null;
 
       if (selectedImage) {
-        toast.loading('Uploading image...');
+        toast.loading('Uploading image to GitHub...');
         imageUrl = await uploadImageToGitHub(selectedImage);
         toast.dismiss();
         toast.success('Image uploaded!');
@@ -191,7 +187,6 @@ export default function ChatBox({ chatId, title, user }) {
               className={`flex ${msg.userId === user.id ? 'justify-end' : 'justify-start'}`}
             >
               <div className={`max-w-xs ${msg.userId === user.id ? 'bg-primary' : 'bg-white/10'} rounded-lg p-3`}>
-                {/* User info with badges */}
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-white font-semibold text-sm">{msg.userName}</span>
                   {msg.userBadges?.slice(0, 3).map((badge, i) => (
@@ -207,7 +202,6 @@ export default function ChatBox({ chatId, title, user }) {
                   ))}
                 </div>
 
-                {/* Message content */}
                 {msg.sticker ? (
                   <div className="text-5xl">{msg.sticker}</div>
                 ) : msg.image ? (
@@ -218,13 +212,16 @@ export default function ChatBox({ chatId, title, user }) {
                       alt="Shared image"
                       className="rounded-lg max-w-full cursor-pointer hover:opacity-90 transition-opacity"
                       onClick={() => window.open(msg.image, '_blank')}
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                        e.target.parentElement.innerHTML += '<p class="text-red-400 text-sm">Image failed to load</p>';
+                      }}
                     />
                   </div>
                 ) : (
                   <p className="text-white">{msg.text}</p>
                 )}
 
-                {/* Timestamp */}
                 <p className="text-white/60 text-xs mt-1">
                   {new Date(msg.timestamp).toLocaleTimeString()}
                 </p>
