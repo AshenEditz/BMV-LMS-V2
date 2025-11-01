@@ -170,7 +170,7 @@ export default function Login() {
 
         <div style={{ marginTop: '20px', padding: '12px', background: 'rgba(0,255,136,0.1)', borderRadius: '8px', fontSize: '12px', textAlign: 'center' }}>
           <p style={{ color: 'var(--green)', marginBottom: '4px' }}>Admin:</p>
-          <p style={{ color: 'white' }}>ICT TEAM</p>
+          <p style={{ color: 'white' }}>ICT/TEAM</p>
         </div>
       </div>
     </div>
