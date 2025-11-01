@@ -1,0 +1,31 @@
+{
+  "name": "buthpitiya-lms",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  },
+  "dependencies": {
+    "next": "14.0.4",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "firebase": "10.7.1",
+    "framer-motion": "10.16.16",
+    "jspdf": "2.5.1",
+    "jspdf-autotable": "3.8.2",
+    "react-hot-toast": "2.4.1",
+    "date-fns": "3.0.6",
+    "react-icons": "4.12.0",
+    "nanoid": "5.0.4"
+  },
+  "devDependencies": {
+    "autoprefixer": "10.4.16",
+    "postcss": "8.4.32",
+    "tailwindcss": "3.4.0",
+    "eslint": "8.56.0",
+    "eslint-config-next": "14.0.4"
+  }
+}
