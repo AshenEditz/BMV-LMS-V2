@@ -1,8 +1,7 @@
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
-// Remove this line:
-// import { getStorage } from 'firebase/storage';
+// ❌ REMOVED: import { getStorage } from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -16,9 +15,8 @@ const firebaseConfig = {
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0];
 const auth = getAuth(app);
 const db = getFirestore(app);
-// Remove this line:
-// const storage = getStorage(app);
+// ❌ REMOVED: const storage = getStorage(app);
 
-// Update export - remove storage
+// ✅ UPDATED: Only export auth and db
 export { auth, db };
 export default app;
